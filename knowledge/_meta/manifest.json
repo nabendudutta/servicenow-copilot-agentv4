@@ -1,0 +1,31 @@
+{
+  "synced_at": "2026-05-11T10:43:58.599703Z",
+  "base_url": "https://dev398042.service-now.com",
+  "tables": {
+    "incident": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/incident?sysparm_limit=1000&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true"
+    },
+    "change_request": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/change_request?sysparm_limit=1000&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true"
+    },
+    "problem": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/problem?sysparm_limit=500&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true"
+    },
+    "kb_knowledge": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/kb_knowledge?sysparm_limit=500&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true&sysparm_query=workflow_state%3Dpublished"
+    },
+    "sc_req_item": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/sc_req_item?sysparm_limit=500&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true"
+    },
+    "sc_task": {
+      "count": 0,
+      "status": "FAILED: 401 Client Error: Unauthorized for url: https://dev398042.service-now.com/api/now/table/sc_task?sysparm_limit=500&sysparm_offset=0&sysparm_display_value=all&sysparm_exclude_reference_link=true"
+    }
+  },
+  "schema": {}
+}
