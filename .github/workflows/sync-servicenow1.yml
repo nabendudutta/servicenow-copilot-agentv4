@@ -1,0 +1,137 @@
+name: Sync ServiceNow Knowledge
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+# Three times a day + on-demand via workflow_dispatch
+on:
+ # schedule:
+  #  - cron: '0  6 * * *'   # 06:00 UTC
+   # - cron: '0 14 * * *'   # 14:00 UTC
+   # - cron: '0 22 * * *'   # 22:00 UTC
+  workflow_dispatch:
+
+# ─── Shared defaults ─────────────────────────────────────────────────────────
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Pull data from ServiceNow → write knowledge/ Markdown files
+  # ══════════════════════════════════════════════════════════════════════════
+  sync:
+    name: Sync ServiceNow → knowledge/
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT so the commit push can trigger the rebuild job
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Guard: fail fast if any secret is missing ───────────────────────
+      - name: Validate ServiceNow secrets
+        env:
+          SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+          SNOW_USER:     ${{ secrets.SNOW_USER }}
+          SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+        run: |
+          MISSING=()
+          [ -z "$SNOW_INSTANCE" ] && MISSING+=("SNOW_INSTANCE")
+          [ -z "$SNOW_USER"     ] && MISSING+=("SNOW_USER")
+          [ -z "$SNOW_PASSWORD" ] && MISSING+=("SNOW_PASSWORD")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All secrets present. Instance: $SNOW_INSTANCE"
+
+      # ── Run the sync script ─────────────────────────────────────────────
+      - name: Run ServiceNow sync
+        env:
+          SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+          SNOW_USER:     ${{ secrets.SNOW_USER }}
+          SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+        run: python sync/servicenow_syncv3.py
+
+      # ── Commit generated Markdown files ─────────────────────────────────
+      # Uses --no-rebase pull to avoid the stash/rebase fragility of the old approach.
+      - name: Commit updated knowledge files
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add knowledge/
+
+          if git diff --cached --quiet; then
+            echo "No changes to knowledge/ — skipping commit."
+          else
+            git pull origin main --no-rebase --no-edit
+            git commit -m "chore: sync ServiceNow knowledge [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push origin main
+            echo "Knowledge files committed and pushed."
+          fi
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Rebuild FAISS vector DB from the freshly-written Markdown
+  # Runs after sync completes so it always sees the latest knowledge/
+  # ══════════════════════════════════════════════════════════════════════════
+  rebuild-vector:
+    name: Rebuild FAISS vector DB
+    needs: sync
+    runs-on: ubuntu-latest
+
+    steps:
+      # Always pull main AFTER the sync job pushed new Markdown files
+      - name: Checkout repository (latest main)
+        uses: actions/checkout@v4
+        with:
+          ref:   main
+          token: ${{ secrets.GH_PAT }}
+          # Fetch full history so git pull has context
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Rebuild FAISS index + keyword_index.json ────────────────────────
+      - name: Rebuild FAISS + keyword index
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: python sync/embedding_builder_githubv31.py
+
+      # ── Commit the rebuilt vector DB ─────────────────────────────────────
+      # Simple, conflict-free: pull first, then stage only vectordb/ and commit.
+      - name: Commit rebuilt vector DB
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Pull any commits that arrived since checkout (e.g. the sync commit)
+          git pull origin main --no-rebase --no-edit
+
+          git add vectordb/
+
+          if git diff --cached --quiet; then
+            echo "Vector DB unchanged — skipping commit."
+          else
+            git commit -m "chore: rebuild vector DB after sync [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push origin main
+            echo "Vector DB committed and pushed."
+          fi

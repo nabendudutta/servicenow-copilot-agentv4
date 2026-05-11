@@ -1,0 +1,51 @@
+name: Build Vector Database
+
+on:
+  push:
+    paths:
+      - 'knowledge11/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate GITHUB_TOKEN
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "GITHUB_TOKEN is EMPTY — add GH_PAT to repo secrets"
+            exit 1
+          fi
+          echo "GITHUB_TOKEN is set, length=${#GITHUB_TOKEN}"
+
+      - name: Build FAISS embeddings + keyword index
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: python sync/embedding_builder_githubv3.py
+
+      - name: Show what was built
+        run: |
+          echo "=== vectordb/ contents ==="
+          ls -lh vectordb/
+          echo "=== Keyword index record count ==="
+          python -c "import json; d=json.load(open('vectordb/keyword_index.json')); print(f'{d[\"doc_count\"]} docs, {d[\"chunk_count\"]} chunks, built at {d[\"built_at\"]}')"
+
+      - name: Commit Vector DB + keyword index
+        run: |
+          git config user.name  github-actions
+          git config user.email github-actions@github.com
+          git add vectordb/
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "Rebuild vector DB + keyword index [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+          git push

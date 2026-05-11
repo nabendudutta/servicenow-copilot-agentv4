@@ -1,0 +1,143 @@
+name: Sync ServiceNow Knowledge v4
+
+# ─── Triggers ────────────────────────────────────────────────────────────────
+on:
+  schedule:
+    - cron: '0  6 * * *'    # 06:00 UTC
+    - cron: '0 14 * * *'    # 14:00 UTC
+    - cron: '0 22 * * *'    # 22:00 UTC
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Pull data from ServiceNow → write knowledge/ Markdown files
+  #          AND populate vectordb/servicenow.db (SQLite)
+  # ══════════════════════════════════════════════════════════════════════════
+  sync:
+    name: Sync ServiceNow → knowledge/ + SQLite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate ServiceNow secrets
+        env:
+          SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+          SNOW_USER:     ${{ secrets.SNOW_USER }}
+          SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+        run: |
+          MISSING=()
+          [ -z "$SNOW_INSTANCE" ] && MISSING+=("SNOW_INSTANCE")
+          [ -z "$SNOW_USER"     ] && MISSING+=("SNOW_USER")
+          [ -z "$SNOW_PASSWORD" ] && MISSING+=("SNOW_PASSWORD")
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::Missing secrets: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "All secrets present. Instance: $SNOW_INSTANCE"
+
+      # ── Run the v4 sync script (writes MD files + servicenow.db) ────────
+      - name: Run ServiceNow sync v4
+        env:
+          SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+          SNOW_USER:     ${{ secrets.SNOW_USER }}
+          SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+        run: python sync/servicenow_syncv4.py
+
+      # ── Show DB stats after sync ─────────────────────────────────────────
+      - name: Show SQLite stats
+        run: |
+          python - <<'EOF'
+          import sqlite3, json
+          conn = sqlite3.connect('vectordb/servicenow.db')
+          cur  = conn.cursor()
+          cur.execute("SELECT table_name, COUNT(*) as cnt FROM records GROUP BY table_name ORDER BY cnt DESC")
+          rows = cur.fetchall()
+          print("=== SQLite record counts ===")
+          for row in rows:
+              print(f"  {row[0]:<22} {row[1]:>6} records")
+          cur.execute("SELECT COUNT(*) FROM record_keywords")
+          kw_count = cur.fetchone()[0]
+          print(f"  {'record_keywords':<22} {kw_count:>6} rows")
+          conn.close()
+          EOF
+
+      # ── Commit generated Markdown files and SQLite DB ───────────────────
+      - name: Commit updated knowledge files and SQLite DB
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add knowledge/ vectordb/servicenow.db
+
+          if git diff --cached --quiet; then
+            echo "No changes — skipping commit."
+          else
+            git pull origin main --no-rebase --no-edit
+            git commit -m "chore: sync ServiceNow v4 [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push origin main
+            echo "Knowledge files and SQLite DB committed and pushed."
+          fi
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Rebuild FAISS vector DB from the freshly-written Markdown
+  # ══════════════════════════════════════════════════════════════════════════
+  rebuild-vector:
+    name: Rebuild FAISS vector DB
+    needs: sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (latest main)
+        uses: actions/checkout@v4
+        with:
+          ref:         main
+          token:       ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Rebuild FAISS + keyword index
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        run: python sync/embedding_builder_githubv31.py
+
+      - name: Commit rebuilt vector DB
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git pull origin main --no-rebase --no-edit
+          git add vectordb/
+
+          if git diff --cached --quiet; then
+            echo "Vector DB unchanged — skipping commit."
+          else
+            git commit -m "chore: rebuild FAISS vector DB [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push origin main
+            echo "Vector DB committed and pushed."
+          fi

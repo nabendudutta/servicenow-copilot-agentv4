@@ -1,0 +1,85 @@
+name: Publish ServiceNow Copilot Agent
+
+on:
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+
+  publish:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+
+          pip install -r requirements.txt
+
+      - name: Validate Agent File
+        run: |
+
+          if [ ! -f ".github/agents/servicenow-copilot.agent.md" ]; then
+            echo "Agent file missing"
+            exit 1
+          fi
+
+          echo "Agent file exists"
+
+      - name: Validate Knowledge Directory
+        run: |
+
+          ls -la knowledge/
+
+      - name: Validate Vector Database
+        run: |
+
+          ls -la vectordb/
+
+      - name: Create Build Metadata
+        run: |
+
+          mkdir -p build
+
+          echo "Build Time: $(date)" > build/build-info.txt
+          echo "Commit: $GITHUB_SHA" >> build/build-info.txt
+          
+      - name: rename to remove invalid characters from python file name 
+        run: |
+         # python sync/rename_invalid_files.py
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: servicenow-copilot-agent
+
+          path: |
+            .github-copilot/
+            knowledge/
+            vectordb/
+            build/
+
+      - name: Publish Status
+        run: |
+
+          echo "=================================="
+          echo "ServiceNow Copilot Agent Ready"
+          echo "=================================="
