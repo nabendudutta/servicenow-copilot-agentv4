@@ -36,7 +36,7 @@ jobs:
       - name: Validate Agent File
         run: |
 
-          if [ ! -f ".github/agents/servicenow-copilot.agent.md" ]; then
+          if [ ! -f ".github/agents/servicenow-copilot.agentv4.md" ]; then
             echo "Agent file missing"
             exit 1
           fi
