@@ -1,5 +1,5 @@
 {
-  "built_at": "2026-05-16T08:15:27.424051Z",
+  "built_at": "2026-05-16T15:03:42.820773Z",
   "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
   "doc_count": 256,
   "chunk_count": 2147,
